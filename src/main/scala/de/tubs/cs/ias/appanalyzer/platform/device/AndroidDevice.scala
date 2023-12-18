@@ -123,11 +123,11 @@ case class AndroidDevice(conf: Config) extends Device with LogSupport {
   }
 
   override def withRunningFrida[T](func: => T): T = {
-    startFrida()
+    // startFrida()
     try {
       func
     } finally {
-      stopFrida()
+      // stopFrida()
     }
   }
 
@@ -181,7 +181,7 @@ case class AndroidDevice(conf: Config) extends Device with LogSupport {
     info("performing phone restart")
     val fridaWasRunning = runningFrida.nonEmpty
     if (runningFrida.nonEmpty)
-      stopFrida()
+      // stopFrida()
     s"${conf.android.adb} reboot".!
     var counter = 1
     while (!checkBootState() && counter < 10) { // a more dynamic reboot procedure
@@ -200,7 +200,7 @@ case class AndroidDevice(conf: Config) extends Device with LogSupport {
       "we unlocked the phone, now we wait for another 2 minutes for everything to boot up")
     Thread.sleep(120000)
     if (fridaWasRunning)
-      startFrida()
+      // startFrida()
     Thread.sleep(1000)
     try {
       if (!checkBootState()) {
@@ -318,7 +318,8 @@ case class AndroidDevice(conf: Config) extends Device with LogSupport {
           ProcessLogger(io => stdio.append(io), err => stderr.append(err))))
       Thread.sleep(10000) // we give each app 10 seconds to start
       if (objection.get.isAlive()) {
-        val fgid = getForegroundAppId.getOrElse(throw AppClosedItself(appId))
+        val fgidd = getForegroundAppId
+        val fgid = fgidd.getOrElse(throw AppClosedItself(appId))
         if (fgid != appId) {
           warn(s"foreground id is wrong : '$fgid' instead of '$appId'")
           closeApp(appId)
@@ -371,17 +372,24 @@ case class AndroidDevice(conf: Config) extends Device with LogSupport {
   }
 
   override def getForegroundAppId: Option[String] = {
-    val cmd = s"${conf.android.adb} shell dumpsys activity recents"
-    cmd.!!.split("\n").find(_.contains("Recent #0")) match {
+    val cmd = s"${conf.android.adb} shell dumpsys activity"
+    cmd.!!.split("\n").find(_.contains("mCurrentFocus=")) match {
       case Some(value) =>
-        "A=[0-9]+:(.+?) U=".r.findFirstIn(value) match {
-          case Some(value) =>
-            Some(
-              value.substring("A=[0-9]+:".r.findFirstIn(value).get.length,
-                              value.length - " U=".length))
-          case None => None
+        if (value.contains('=')) {
+          val _ :: rhs :: Nil              = value.split("=").toList
+          val _ :: _ :: idAndAction :: Nil = rhs.split(" ").toList
+          if (idAndAction.contains('/')) {
+            Some(idAndAction.split("/").head)
+          } else {
+            val id = if (idAndAction.endsWith("}")) idAndAction.dropRight(1) else idAndAction
+            Some(id)
+          }
+        } else {
+          Some(value)
         }
-      case None => None
+      case None =>
+        error("no current focus found")
+        None
     }
   }
 
